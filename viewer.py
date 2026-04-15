@@ -315,7 +315,19 @@ body{
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
 /* ── Main content ────────────────────────────────────── */
-#main{flex:1;overflow-y:auto;background:var(--bg);padding:20px 24px;min-width:0}
+#main{
+  flex:1;min-width:0;background:var(--bg);
+  display:flex;flex-direction:column;
+}
+#main-scroll{
+  flex:1;min-height:0;overflow:auto;
+  padding:20px 24px 12px;
+}
+#bottom-scroll{
+  flex-shrink:0;height:16px;overflow-x:auto;overflow-y:hidden;
+  background:var(--bg2);border-top:1px solid var(--border);
+}
+#bottom-scroll-inner{height:1px}
 
 .empty-state{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -331,12 +343,13 @@ body{
 .empty-sub{font-size:12px;color:var(--fg3);text-align:center;line-height:1.6}
 
 /* ── Cards (field rows) ──────────────────────────────── */
-.field-cards{display:flex;flex-direction:column;gap:2px}
+.field-cards{display:flex;flex-direction:column;gap:2px;align-items:flex-start}
 
 .fcard{
   background:var(--bg2);border:1px solid var(--border);
   border-radius:var(--radius-sm);overflow:hidden;
   transition:border-color .15s,box-shadow .15s;
+  width:max-content;min-width:100%;
 }
 .fcard:hover{border-color:var(--border2);box-shadow:var(--shadow-sm)}
 
@@ -439,6 +452,7 @@ body{
 .json-tree{
   font-family:'SF Mono','Fira Code','Cascadia Code',monospace;
   font-size:12px;line-height:1.8;
+  display:inline-block;min-width:100%;width:max-content;
 }
 .j-entry{display:flex;align-items:flex-start;padding-left:18px;position:relative}
 .j-key{color:var(--key);font-weight:500}
@@ -467,6 +481,7 @@ body{
 .raw-card{
   background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);
   padding:16px 18px;
+  width:max-content;min-width:100%;
 }
 .raw-label{font-size:10px;color:var(--fg3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px}
 .raw-text{color:var(--fg2);white-space:pre-wrap;word-break:break-all;line-height:1.7;font-size:13px}
@@ -583,12 +598,15 @@ body.drag-over #drag-overlay{display:flex}
 
   <!-- Main -->
   <div id="main">
-    <div class="empty-state" id="empty-state">
-      <div class="empty-icon">📄</div>
-      <div class="empty-title">请选择 JSONL 文件</div>
-      <div class="empty-sub">支持路径输入 · 点击浏览按钮 · 直接拖放文件到窗口</div>
+    <div id="main-scroll">
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon">📄</div>
+        <div class="empty-title">请选择 JSONL 文件</div>
+        <div class="empty-sub">支持路径输入 · 点击浏览按钮 · 直接拖放文件到窗口</div>
+      </div>
+      <div id="content" class="hidden field-cards"></div>
     </div>
-    <div id="content" class="hidden field-cards"></div>
+    <div id="bottom-scroll" class="hidden"><div id="bottom-scroll-inner"></div></div>
   </div>
 </div>
 
@@ -609,6 +627,8 @@ let sliderTimer   = null;
 let nodeId        = 0;
 let clientLines   = null;
 let fieldSearch   = '';
+let syncingMainScroll = false;
+let syncingBottomScroll = false;
 
 // ── File opening ─────────────────────────────────────────
 async function browseFile() {
@@ -814,12 +834,14 @@ function renderContent(raw) {
 
   if (!raw) {
     content.innerHTML = `<div class="raw-card"><div class="raw-label">空行</div><div class="raw-text" style="color:var(--fg3)">(此行为空)</div></div>`;
+    syncBottomScrollSoon();
     return;
   }
 
   let parsed;
   try { parsed = JSON.parse(raw); } catch {
     content.innerHTML = `<div class="raw-card"><div class="raw-label">原始文本</div><div class="raw-text">${escapeHtml(raw)}</div></div>`;
+    syncBottomScrollSoon();
     return;
   }
 
@@ -828,14 +850,17 @@ function renderContent(raw) {
     const keys = Object.keys(parsed).filter(k => !allFields.length || selectedFields.has(k));
     if (!keys.length) {
       content.innerHTML = `<div class="raw-card"><div class="raw-label">提示</div><div class="raw-text" style="color:var(--fg3)">没有选中的字段，请在左侧勾选字段</div></div>`;
+      syncBottomScrollSoon();
       return;
     }
     content.innerHTML = keys.map(k => renderFieldCard(k, parsed[k])).join('');
+    syncBottomScrollSoon();
     return;
   }
 
   // Array or primitive at root
   content.innerHTML = `<div class="raw-card"><div class="raw-label">内容</div><div class="json-tree">${renderVal(parsed, 0, true)}</div></div>`;
+  syncBottomScrollSoon();
 }
 
 function typeBadge(v) {
@@ -938,11 +963,13 @@ function toggleRawCard(id, treeElemId) {
     btn.classList.toggle('active', !showingTree);
     btn.textContent = showingTree ? '🔤 原文' : '{ } JSON';
   }
+  syncBottomScrollSoon();
 }
 
 function expandStr(id) {
   const el = document.getElementById('ls' + id);
   if (el) el.classList.toggle('expanded');
+  syncBottomScrollSoon();
 }
 
 function toggleMDCard(id) {
@@ -954,6 +981,7 @@ function toggleMDCard(id) {
   md.classList.toggle('hidden', showingMD);
   raw.classList.toggle('hidden', !showingMD);
   if (btn) btn.classList.toggle('active', !showingMD);
+  syncBottomScrollSoon();
 }
 
 // ── Nested JSON tree ──────────────────────────────────────
@@ -1003,6 +1031,7 @@ function toggleNestedStr(id) {
   const showTree = tree.classList.toggle('hidden');
   raw.classList.toggle('hidden', !showTree);
   if (btn) { btn.classList.toggle('active', !showTree); btn.textContent = showTree ? '{ } JSON' : '🔤 原文'; }
+  syncBottomScrollSoon();
 }
 
 function toggleNestedMD(id) {
@@ -1013,6 +1042,7 @@ function toggleNestedMD(id) {
   const showMD = md.classList.toggle('hidden');
   raw.classList.toggle('hidden', !showMD);
   if (btn) { btn.classList.toggle('active', !showMD); btn.textContent = showMD ? '🔤 MD' : '🔤 原文'; }
+  syncBottomScrollSoon();
 }
 
 function renderObj(obj, depth, isRoot) {
@@ -1062,6 +1092,33 @@ function toggleNode(id) {
   if (pv) pv.classList.toggle('hidden', !collapsed);
   const t = document.querySelector(`.toggler[data-id="${id}"]`);
   if (t) t.textContent = collapsed ? '▸' : '▾';
+  syncBottomScrollSoon();
+}
+
+function syncBottomScrollSoon() {
+  requestAnimationFrame(syncBottomScroll);
+}
+
+function syncBottomScroll() {
+  const main = document.getElementById('main-scroll');
+  const bottom = document.getElementById('bottom-scroll');
+  const inner = document.getElementById('bottom-scroll-inner');
+  if (!main || !bottom || !inner) return;
+
+  inner.style.width = main.scrollWidth + 'px';
+  const needsHorizontalScroll = main.scrollWidth - main.clientWidth > 1;
+  bottom.classList.toggle('hidden', !needsHorizontalScroll);
+
+  if (!needsHorizontalScroll) {
+    if (main.scrollLeft !== 0) main.scrollLeft = 0;
+    if (bottom.scrollLeft !== 0) bottom.scrollLeft = 0;
+    return;
+  }
+
+  if (Math.abs(bottom.scrollLeft - main.scrollLeft) > 1) {
+    syncingBottomScroll = true;
+    bottom.scrollLeft = main.scrollLeft;
+  }
 }
 
 // ── Utilities ────────────────────────────────────────────
@@ -1099,6 +1156,33 @@ document.getElementById('path-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') openFile();
 });
 
+(function() {
+  const main = document.getElementById('main-scroll');
+  const bottom = document.getElementById('bottom-scroll');
+
+  main.addEventListener('scroll', () => {
+    if (syncingMainScroll) {
+      syncingMainScroll = false;
+      return;
+    }
+    if (Math.abs(bottom.scrollLeft - main.scrollLeft) <= 1) return;
+    syncingBottomScroll = true;
+    bottom.scrollLeft = main.scrollLeft;
+  });
+
+  bottom.addEventListener('scroll', () => {
+    if (syncingBottomScroll) {
+      syncingBottomScroll = false;
+      return;
+    }
+    if (Math.abs(main.scrollLeft - bottom.scrollLeft) <= 1) return;
+    syncingMainScroll = true;
+    main.scrollLeft = bottom.scrollLeft;
+  });
+
+  window.addEventListener('resize', syncBottomScrollSoon);
+})();
+
 // ── Resizable sidebar ────────────────────────────────────
 (function() {
   const resizer = document.getElementById('resizer');
@@ -1116,6 +1200,7 @@ document.getElementById('path-input').addEventListener('keydown', e => {
     function onMove(e) {
       const w = Math.min(MAX_W, Math.max(MIN_W, startW + (e.clientX - startX)));
       sidebar.style.width = w + 'px';
+      syncBottomScrollSoon();
     }
     function onUp() {
       resizer.classList.remove('dragging');
