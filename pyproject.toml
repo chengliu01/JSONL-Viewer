@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jsonl-viewer"
+version = "0.1.0"
+description = "Local JSONL file viewer powered by the Python standard library."
+readme = "README.md"
+requires-python = ">=3.7"
+
+[project.scripts]
+jsonlv = "viewer:main"

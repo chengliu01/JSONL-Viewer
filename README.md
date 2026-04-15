@@ -6,20 +6,42 @@
 
 ## 快速开始
 
+先安装成全局命令：
+
 ```bash
-python3 viewer.py
+python3 -m pip install -e .
+```
+
+安装完成后，在任何目录都可以直接运行：
+
+```bash
+jsonlv
 ```
 
 浏览器会自动打开。也可以直接指定文件：
 
 ```bash
-python3 viewer.py /path/to/file.jsonl
+jsonlv /path/to/file.jsonl
 ```
 
-自定义端口：
+指定首选端口：
 
 ```bash
-JSONL_PORT=8080 python3 viewer.py
+jsonlv --port 8080
+```
+
+如果首选端口已被占用，程序会自动切换到一个空闲端口并打印实际地址。
+
+不自动打开浏览器：
+
+```bash
+jsonlv --no-open
+```
+
+如果你还没安装，也可以在仓库目录里直接运行：
+
+```bash
+python3 viewer.py
 ```
 
 ## 功能

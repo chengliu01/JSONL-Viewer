@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """JSONL Viewer — 本地可视化 JSONL 文件工具"""
 
+import argparse
 import json
 import os
+import socket
 import sys
 import urllib.parse
 import threading
@@ -1247,38 +1249,79 @@ class Handler(BaseHTTPRequestHandler):
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
-if __name__ == '__main__':
-    PORT = 5174
-    # Allow overriding port via env
-    PORT = int(os.environ.get('JSONL_PORT', PORT))
+DEFAULT_HOST = '127.0.0.1'
+DEFAULT_PORT = 5174
 
-    # Try to bind; if port busy, find a free one
-    import socket
-    for p in range(PORT, PORT + 20):
-        try:
-            httpd = ThreadingHTTPServer(('127.0.0.1', p), Handler)
-            PORT = p
-            break
-        except OSError:
-            continue
-    else:
-        print('无法找到可用端口，退出', file=sys.stderr)
-        sys.exit(1)
-    url   = f'http://127.0.0.1:{PORT}'
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='本地启动 JSONL Viewer，并自动打开浏览器。'
+    )
+    parser.add_argument(
+        'file',
+        nargs='?',
+        help='可选，启动后预加载的 JSONL 文件路径',
+    )
+    parser.add_argument(
+        '--host',
+        default=os.environ.get('JSONL_HOST', DEFAULT_HOST),
+        help=f'监听地址，默认 {DEFAULT_HOST}',
+    )
+    parser.add_argument(
+        '--port',
+        type=int,
+        default=int(os.environ.get('JSONL_PORT', DEFAULT_PORT)),
+        help=f'首选端口，默认 {DEFAULT_PORT}；若被占用会自动切换',
+    )
+    parser.add_argument(
+        '--no-open',
+        action='store_true',
+        help='仅启动服务，不自动打开浏览器',
+    )
+    return parser.parse_args()
+
+
+def pick_server(host: str, preferred_port: int):
+    try:
+        return ThreadingHTTPServer((host, preferred_port), Handler), preferred_port
+    except OSError:
+        pass
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind((host, 0))
+        fallback_port = probe.getsockname()[1]
+
+    return ThreadingHTTPServer((host, fallback_port), Handler), fallback_port
+
+
+def main():
+    args = parse_args()
+    httpd, port = pick_server(args.host, args.port)
+    url = f'http://{args.host}:{port}'
+
     print(f'JSONL Viewer  →  {url}')
+    if port != args.port:
+        print(f'端口 {args.port} 已占用，已自动切换到空闲端口 {port}')
     print('按 Ctrl+C 退出')
 
-    threading.Timer(0.4, lambda: webbrowser.open(url)).start()
+    if not args.no_open:
+        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
 
-    # If a file path is passed as CLI argument, open it automatically
-    if len(sys.argv) > 1:
-        initial = sys.argv[1]
+    if args.file:
+        initial = os.path.abspath(args.file)
         if os.path.isfile(initial):
-            # The frontend will handle it; we just pre-build the index
             build_index(initial)
             print(f'预加载文件：{initial}')
+        else:
+            print(f'文件不存在，忽略预加载：{initial}', file=sys.stderr)
 
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print('\n已退出')
+    finally:
+        httpd.server_close()
+
+
+if __name__ == '__main__':
+    main()
